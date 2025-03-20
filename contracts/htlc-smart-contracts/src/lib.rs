@@ -1,7 +1,7 @@
 #![no_std]
 mod storage;
 use crate::storage::{DataItem, get_max_count, set_item, read_item, DATA_BYTES_LENGTH};
-use soroban_sdk::{contract, contracterror, contractimpl, log, token, Address, Bytes, Env, U256};
+use soroban_sdk::{contract, contracterror, contractimpl, token, Address, Bytes, Env, U256};
 use storage::delete_item;
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -52,24 +52,16 @@ impl Contract {
     pub fn provide_data(env: Env, id: u64, data: Bytes) -> Result<bool, Error> {
         if let Some(item) = read_item(&env, id){
             let DataItem { expired_at, token, from: _, to, amount, hash } = item;
-            log!(&env,"Providing data for contract ", id, amount, hash);
             if check_expired(&env, expired_at) {
-                log!(&env,"Contract expired");
                 return Err(Error::AlreadyExpired);
             }
             if !valid_signature(&env, &hash, &data){
-                log!(&env,"Invalid signature");
                 return Err(Error::InvalidSignature);
             }
-            log!(&env,"Valid signature");
             delete_item(&env, id);
-            log!(&env,"item deleted");
             move_token(&env, &token, &env.current_contract_address(), &to, amount);
-            log!(&env,"token moved");
             Ok(true)
         } else{
-            log!(&env,"not found");
-
             Err(Error::NotFound)
         }
     }
@@ -97,7 +89,6 @@ fn move_token(
 }
 fn valid_signature(env: &Env, hash: &U256, data: &Bytes) -> bool {
     if data.len() != DATA_BYTES_LENGTH {
-        log!(&env,"Invalid data length");
         return false;
     }
     let signature = env.crypto().sha256(data);

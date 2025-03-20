@@ -18,6 +18,7 @@
       devShell.packages = pkgs: [
         pkgs.cargo
         pkgs.rustc
+        pkgs.lld
 
       ];
     };
