@@ -1,7 +1,7 @@
 #![no_std]
 mod storage;
 use crate::storage::{DataItem, get_max_count, set_item, read_item, DATA_BYTES_LENGTH};
-use soroban_sdk::{contract, contracterror, contractimpl, token, vec, Address, Bytes, Env, String, Vec, U256};
+use soroban_sdk::{contract, contracterror, contractimpl, log, token, Address, Bytes, Env, U256};
 use storage::delete_item;
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -17,16 +17,21 @@ pub struct Contract;
 
 #[contractimpl]
 impl Contract {
-    pub fn hello(env: Env, to: String) -> Vec<String> {
-        vec![&env, String::from_str(&env, "Hello"), to]
-    }
-    pub fn create(env: Env, data: DataItem) -> u64 {
-        data.from.require_auth();
 
-        move_token(&env, &data.token, &data.from, &env.current_contract_address(), data.amount);
+    pub fn create(env: Env, from: Address, to: Address, token: Address, amount: i128, expired_at: u64, hash: U256) -> u64 {
+        from.require_auth();
+
+        move_token(&env, &token, &from, &env.current_contract_address(), amount);
         let id = get_max_count(&env);
         // add the item
-        set_item(&env, id, &data);
+        set_item(&env, id, &DataItem{
+            expired_at,
+            token,
+            from,
+            to,
+            amount,
+            hash
+        });
 
         id
     }
@@ -46,20 +51,27 @@ impl Contract {
     }
     pub fn provide_data(env: Env, id: u64, data: Bytes) -> Result<bool, Error> {
         if let Some(item) = read_item(&env, id){
-            let w: DataItem = item;
-            if check_expired(&env, w.expired_at) {
+            let DataItem { expired_at, token, from: _, to, amount, hash } = item;
+            log!(&env,"Providing data for contract ", id, amount, hash);
+            if check_expired(&env, expired_at) {
+                log!(&env,"Contract expired");
                 return Err(Error::AlreadyExpired);
             }
-            if !valid_signature(&env, &w.hash, &data){
+            if !valid_signature(&env, &hash, &data){
+                log!(&env,"Invalid signature");
                 return Err(Error::InvalidSignature);
             }
+            log!(&env,"Valid signature");
             delete_item(&env, id);
-            move_token(&env, &w.token, &env.current_contract_address(), &w.to, w.amount);
+            log!(&env,"item deleted");
+            move_token(&env, &token, &env.current_contract_address(), &to, amount);
+            log!(&env,"token moved");
             Ok(true)
         } else{
+            log!(&env,"not found");
+
             Err(Error::NotFound)
         }
-
     }
 
 }
@@ -82,6 +94,7 @@ fn move_token(
 }
 fn valid_signature(env: &Env, hash: &U256, data: &Bytes) -> bool {
     if data.len() != DATA_BYTES_LENGTH {
+        log!(&env,"Invalid data length");
         return false;
     }
     let signature = env.crypto().sha256(data);
