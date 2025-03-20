@@ -28,7 +28,7 @@ struct HTLCContractDataTest<'a> {
 
 
 impl<'a> HTLCContractDataTest<'a> {
-    fn setup() -> Self {
+    fn setup(mint_amount: Option<u64>) -> Self {
             let env = Env::default();
             env.mock_all_auths();
             env.ledger().set_timestamp(10);
@@ -44,7 +44,7 @@ impl<'a> HTLCContractDataTest<'a> {
             let bytes = Bytes::from_array(&env, &random_bytes.to_array());
             let token = create_token_contract(&env, &from_user);
             // mint 100 tokens
-            token.1.mint(&from_user, &100);
+            token.1.mint(&from_user, &(mint_amount.unwrap_or(100) as i128));
             HTLCContractDataTest {
                 env,
                 from_user,
@@ -61,7 +61,7 @@ impl<'a> HTLCContractDataTest<'a> {
 
 #[test]
 fn test_repay() {
-    let data = HTLCContractDataTest::setup();
+    let data = HTLCContractDataTest::setup(None);
 
     let hash = U256::from_be_bytes(&data.env, &Bytes::from_array(&data.env, &data.env.crypto().sha256(&data.bytes).to_array()));
     let id = data.client.create(
@@ -94,7 +94,7 @@ fn test_repay() {
 
 #[test]
 fn test_repay_with_wrong_data() {
-    let data = HTLCContractDataTest::setup();
+    let data = HTLCContractDataTest::setup(None);
 
     let hash = U256::from_be_bytes(&data.env, &Bytes::from_array(&data.env, &data.env.crypto().sha256(&data.bytes).to_array()));
     let id = data.client.create(
@@ -110,7 +110,7 @@ fn test_repay_with_wrong_data() {
 }
 #[test]
 fn test_expired() {
-    let data = HTLCContractDataTest::setup();
+    let data = HTLCContractDataTest::setup(None);
 
     let hash = U256::from_be_bytes(&data.env, &Bytes::from_array(&data.env, &data.env.crypto().sha256(&data.bytes).to_array()));
     let id = data.client.create(
@@ -139,13 +139,11 @@ fn test_expired() {
     assert_eq!(balance_owner, 100);
     let balance_from_user = data.token.0.balance(&data.from_user);
     assert_eq!(balance_from_user, 0);
-
 }
 
 #[test]
-
 fn test_not_expired_yet(){
-    let data = HTLCContractDataTest::setup();
+    let data = HTLCContractDataTest::setup(None);
 
     let hash = U256::from_be_bytes(&data.env, &Bytes::from_array(&data.env, &data.env.crypto().sha256(&data.bytes).to_array()));
     let id = data.client.create(
@@ -162,4 +160,42 @@ fn test_not_expired_yet(){
     let val = data.client.try_cancel_expired(&id);
     assert_eq!(val, Err(Ok(Error::NotExpiredYet)));
 
+}
+
+#[test]
+fn test_many(){
+    let data = HTLCContractDataTest::setup(Some(1000));
+    let mut ids: [u64; 1000] = [0; 1000];
+    let hash = U256::from_be_bytes(&data.env, &Bytes::from_array(&data.env, &data.env.crypto().sha256(&data.bytes).to_array()));
+
+    for i in 0..1000  {
+        let id = data.client.create(
+            &data.from_user,
+            &data.to_user,
+            &data.token.0.address,
+            &1,
+            &i,
+            &hash,
+        );
+        ids[i as usize] = id;
+    }
+    let balance_from_user = data.token.0.balance(&data.from_user);
+    assert_eq!(balance_from_user, 0);
+    let balance_owner = data.token.0.balance(&data.client.address);
+    assert_eq!(balance_owner, 1000);
+    if let Some(g) = data.client.get_event(&ids[999]) {
+        assert_eq!(g.hash, hash);
+    }
+    else {
+        panic!("Event not found")
+    }
+    // check that 1000 not exists
+    if let Some(_) = data.client.get_event(&1001) {
+        panic!("Event 1 found")
+    }
+    data.client.cancel_expired(&ids[0]);
+
+    if let Some(_) = data.client.get_event(&ids[0]) {
+        panic!("Event 2 found")
+    }
 }

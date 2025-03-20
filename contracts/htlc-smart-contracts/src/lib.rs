@@ -74,6 +74,9 @@ impl Contract {
         }
     }
 
+    pub fn get_event(env: Env, id: u64) -> Option<DataItem> {
+        return read_item(&env, id);
+    }
 }
 
 mod test;
